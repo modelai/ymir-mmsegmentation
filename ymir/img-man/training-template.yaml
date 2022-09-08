@@ -1,0 +1,14 @@
+class_names:
+- dog
+config_file: configs/fastscnn/fast_scnn_lr0.12_8x4_160k_cityscapes.py
+export_format: ark:raw
+gpu_count: 4
+gpu_id: 0,1,2,3
+max_iters: 20000
+interval: 2000
+metric: bbox
+port: 12345
+samples_per_gpu: 16
+shm_size: 32G
+task_id: t0000002000002117b021662374440
+workers_per_gpu: 16

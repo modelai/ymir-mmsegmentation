@@ -12,13 +12,14 @@ import torch.distributed as dist
 from mmcv.cnn.utils import revert_sync_batchnorm
 from mmcv.runner import get_dist_info, init_dist
 from mmcv.utils import Config, DictAction, get_git_hash
+from ymir_exc.util import get_merged_config
 
 from mmseg import __version__
 from mmseg.apis import init_random_seed, set_random_seed, train_segmentor
 from mmseg.datasets import build_dataset
 from mmseg.models import build_segmentor
-from mmseg.utils import (collect_env, get_device, get_root_logger,
-                         setup_multi_processes)
+from mmseg.utils import collect_env, get_device, get_root_logger, setup_multi_processes
+from ymir.ymir_util import modify_mmcv_config
 
 
 def parse_args():
@@ -157,6 +158,8 @@ def main():
         _, world_size = get_dist_info()
         cfg.gpu_ids = range(world_size)
 
+    ymir_cfg = get_merged_config()
+    modify_mmcv_config(ymir_cfg, cfg)
     # create work_dir
     mmcv.mkdir_or_exist(osp.abspath(cfg.work_dir))
     # dump config

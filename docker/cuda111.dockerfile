@@ -28,11 +28,12 @@ RUN conda clean --all
 # Install MMCV
 ARG PYTORCH
 ARG CUDA
-ARG MMCV
+ARG MMCV=1.6.1
 RUN ["/bin/bash", "-c", "pip install --no-cache-dir mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu${CUDA//./}/torch${PYTORCH}/index.html"]
 
 # Install MMSegmentation
-RUN git clone https://github.com/open-mmlab/mmsegmentation.git /mmsegmentation
+# RUN git clone https://github.com/open-mmlab/mmsegmentation.git /mmsegmentation
+COPY . /mmsegmentation
 WORKDIR /mmsegmentation
 ENV FORCE_CUDA="1"
 RUN pip install -r requirements.txt
