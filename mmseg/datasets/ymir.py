@@ -15,12 +15,12 @@ class YmirDataset(CustomDataset):
 
         img_infos = []
         if len(lines[0].strip().split()) == 1:
-            test_mode = True
+            train_mode = False
         else:
-            test_mode = False
+            train_mode = True
 
         for line in lines:
-            if test_mode:
+            if not train_mode:
                 img_info: Dict[str, Any] = dict(filename=line.strip())
             else:
                 img_path, ann_path = line.strip().split()

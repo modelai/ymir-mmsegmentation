@@ -1,13 +1,17 @@
 import glob
+import json
 import logging
 import os
 import os.path as osp
 import warnings
-from typing import Any, Iterable, List
+from typing import Any, Dict, Iterable, List, Tuple, Union
 
+import numpy as np
 from easydict import EasyDict as edict
-from mmcv.utils import Config
-from ymir_exc.util import get_weight_files
+from mmcv.utils import Config, ConfigDict
+from PIL import Image
+from tqdm import tqdm
+from ymir_exc.util import get_bool, get_weight_files, write_ymir_training_result
 
 
 def _find_any(str1: str, sub_strs: List[str]) -> bool:
@@ -62,6 +66,87 @@ def get_best_weight_file(ymir_cfg: edict):
     return ""
 
 
+def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palatte_dict: Dict[Tuple, int], dtype: Any = np.uint8):
+    """
+    map rgb color to label id, start from 1
+    for the output mask, note to ignore label 0.
+    """
+    pil_rgb_img = Image.open(rgb_img)
+    np_rgb_img = np.array(pil_rgb_img)
+    height, width = np_rgb_img.shape[0:2]
+    np_label_id = np.ones(shape=(height, width), dtype=dtype) * 255
+
+    # rgb = (0,0,0), idx = 0 can skip.
+    for rgb, idx in palatte_dict.items():
+        r = np_rgb_img[:, :, 0] == rgb[0]
+        g = np_rgb_img[:, :, 1] == rgb[1]
+        b = np_rgb_img[:, :, 2] == rgb[2]
+
+        np_label_id[r & g & b] = idx
+
+    # mode = L: 8-bit unsigned integer pixels
+    # mode = I: 32-bit signed integer pixels
+    pil_label_id_img = Image.fromarray(np_label_id, mode='L' if dtype == np.uint8 else 'I')
+    pil_label_id_img.save(label_id_img)
+
+
+def convert_annotation_dataset(ymir_cfg: edict):
+    """
+    convert annotation images from RGB mode to label id mode
+    return new index files
+    note: call before ddp, avoid multi-process problem
+    """
+    ymir_ann_files = dict(train=ymir_cfg.ymir.input.training_index_file,
+                          val=ymir_cfg.ymir.input.val_index_file,
+                          test=ymir_cfg.ymir.input.candidate_index_file)
+
+    in_dir = ymir_cfg.ymir.input.root_dir
+    out_dir = ymir_cfg.ymir.output.root_dir
+    new_ann_files = dict()
+    for split in ['train', 'val']:
+        new_ann_files[split] = osp.join(out_dir, osp.relpath(ymir_ann_files[split], in_dir))
+
+    new_ann_files['test'] = ymir_ann_files['test']
+    # call before ddp, avoid multi-process problem, just to return new_ann_files
+    logging.info(f'convert annotation dataset to: {new_ann_files}')
+    if osp.exists(new_ann_files['train']):
+        return new_ann_files
+
+    label_map_txt = osp.join(ymir_cfg.ymir.input.annotations_dir, 'labelmap.txt')
+    with open(label_map_txt, 'r') as fp:
+        lines = fp.readlines()
+
+    # note: class_names maybe the subset of label_map
+    class_names = ymir_cfg.param.class_names
+    palatte_dict: Dict[Tuple, int] = {}
+    for idx, line in enumerate(lines):
+        label, rgb = line.split(':')[0:2]
+        r, g, b = [int(x) for x in rgb.split(',')]
+        if label in class_names:
+            class_id = class_names.index(label)
+            palatte_dict[(r, g, b)] = class_id
+            logging.info(f'label map: {class_id}={label} ({r}, {g}, {b})')
+        else:
+            logging.info(f'ignored label in labelmap.txt: {label} {rgb}')
+    # palatte_dict[(0, 0, 0)] = 255
+
+    for split in ['train', 'val']:
+        with open(ymir_ann_files[split], 'r') as fp:
+            lines = fp.readlines()
+
+        fw = open(new_ann_files[split], 'w')
+        for line in tqdm(lines, desc=f'convert {split} dataset'):
+            img_path, ann_path = line.strip().split()
+
+            new_ann_path = osp.join(out_dir, osp.relpath(ann_path, in_dir))
+            os.makedirs(osp.dirname(new_ann_path), exist_ok=True)
+            convert_rgb_to_label_id(ann_path, new_ann_path, palatte_dict)
+            fw.write(f'{img_path}\t{new_ann_path}\n')
+        fw.close()
+
+    return new_ann_files
+
+
 def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
     """
     useful for training process
@@ -69,21 +154,28 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
     - modify model output channel
     - modify epochs, checkpoint, tensorboard config
     """
-    def recursive_modify(mmcv_cfg: Config, attribute_key: str, attribute_value: Any):
+
+    def recursive_modify(mmcv_cfg: Union[Config, ConfigDict], attribute_key: str, attribute_value: Any):
+        """
+        recursive modify mmcv_cfg:
+            1. mmcv_cfg.attribute_key to attribute_value
+            2. mmcv_cfg.xxx.xxx.xxx.attribute_key to attribute_value (recursive)
+            3. mmcv_cfg.xxx[i].attribute_key to attribute_value (i=0, 1, 2 ...)
+            4. mmcv_cfg.xxx[i].xxx.xxx[j].attribute_key to attribute_value
+        """
         for key in mmcv_cfg:
             if key == attribute_key:
                 mmcv_cfg[key] = attribute_value
-            elif isinstance(mmcv_cfg[key], Config):
+                logging.info(f'modify {mmcv_cfg}, {key} = {attribute_value}')
+            elif isinstance(mmcv_cfg[key], (Config, ConfigDict)):
                 recursive_modify(mmcv_cfg[key], attribute_key, attribute_value)
             elif isinstance(mmcv_cfg[key], Iterable):
                 for cfg in mmcv_cfg[key]:
-                    if isinstance(cfg, Config):
+                    if isinstance(cfg, (Config, ConfigDict)):
                         recursive_modify(cfg, attribute_key, attribute_value)
 
     # modify dataset config
-    ymir_ann_files = dict(train=ymir_cfg.ymir.input.training_index_file,
-                          val=ymir_cfg.ymir.input.val_index_file,
-                          test=ymir_cfg.ymir.input.candidate_index_file)
+    ymir_ann_files = convert_annotation_dataset(ymir_cfg)
 
     # validation may augment the image and use more gpu
     # so set smaller samples_per_gpu for validation
@@ -104,6 +196,7 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
                                 ann_dir=ymir_cfg.ymir.input.annotations_dir,
                                 classes=ymir_cfg.param.class_names,
                                 palette=ymir_cfg.param.get('palette', None),
+                                reduce_zero_label=False,
                                 data_root=ymir_cfg.ymir.input.root_dir)
         # modify dataset config for `split`
         if split not in mmcv_cfg.data:
@@ -123,20 +216,6 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
                     d.update(ymir_dataset_cfg)
             else:
                 mmcv_dataset_cfg.update(ymir_dataset_cfg)
-
-    # modify epochs/iters, checkpoint, tensorboard config
-    # if 'max_epochs' in ymir_cfg.param:
-    #     max_epochs = ymir_cfg.param.max_epochs
-    #     if max_epochs <= 0:
-    #         pass
-    #     # modify EpochBasedRunner-like runner
-    #     elif 'max_epochs' in mmcv_cfg.runner:
-    #         mmcv_cfg.runner.max_epochs = max_epochs
-    #     else:
-    #         # convert other type to EpochBasedRunner
-    #         epoch_runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
-    #         warnings.warn(f'modify {mmcv_cfg.runner} to {epoch_runner}')
-    #         mmcv_cfg.runner = epoch_runner
 
     if 'max_iters' in ymir_cfg.param:
         max_iters = ymir_cfg.param.max_iters
@@ -173,6 +252,9 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
 
     mmcv_cfg.checkpoint_config.interval = mmcv_cfg.evaluation.interval
 
+    # note some early weight files will be removed, check ymir result file and ensure the weight files be valid.
+    mmcv_cfg.checkpoint_config.max_keep_ckpts = int(ymir_cfg.param.get('max_keep_ckpts', -1))
+    mmcv_cfg.evaluation.save_best = 'mIoU'
     # fix DDP error
     mmcv_cfg.find_unused_parameters = True
 
@@ -192,3 +274,42 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
             mmcv_cfg.load_from = weight_file
         else:
             logging.warning('no weight file used for training!')
+
+
+def write_last_ymir_result_file(cfg: edict, id: str = 'last'):
+    """
+    cfg: ymir merged config
+    save_least_file: if True, save last weight file and config file
+        if False, save log files with last weight file and config file
+
+    load miou from json log file (*.log.json)
+    """
+    log_json_files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.log.json'))
+    if len(log_json_files) == 0:
+        raise Exception('no log json files found!')
+
+    log_json_file = max(log_json_files, key=os.path.getctime)
+
+    with open(log_json_file, 'r') as fr:
+        lines = fr.readlines()
+
+    for line in reversed(lines):
+        val_result = json.loads(line)
+        if val_result['mode'] == 'val':
+            break
+
+    last_miou = val_result['mIoU']
+    save_least_file: bool = get_bool(cfg, key='save_least_file', default_value=True)
+
+    # this file is soft link
+    last_ckpt_path = osp.join(cfg.ymir.output.models_dir, 'latest.pth')
+    if save_least_file:
+        mmseg_config_files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.py'))
+
+        write_ymir_training_result(cfg, map50=float(last_miou), files=mmseg_config_files + [last_ckpt_path], id=id)
+    else:
+        files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.py'))
+
+        log_files = [f for f in files if not f.endswith('.pth')]
+
+        write_ymir_training_result(cfg, map50=float(last_miou), files=log_files + [last_ckpt_path], id=id)

@@ -3,6 +3,7 @@ ARG PYTORCH="1.8.0"
 ARG CUDA="11.1"
 ARG CUDNN="8"
 
+# docker build -t youdaoyzbx/ymir-executor:ymir1.3.0-mmseg-cu111-base -f docker/cuda111.dockerfile .
 FROM pytorch/pytorch:${PYTORCH}-cuda${CUDA}-cudnn${CUDNN}-runtime
 
 ENV TORCH_CUDA_ARCH_LIST="6.0 6.1 7.0+PTX"
@@ -26,8 +27,8 @@ RUN sed -i 's#http://archive.ubuntu.com#https://mirrors.ustc.edu.cn#g' /etc/apt/
 RUN conda clean --all
 
 # Install MMCV
-ARG PYTORCH
-ARG CUDA
+ARG PYTORCH="1.8.0"
+ARG CUDA="11.1"
 ARG MMCV=1.6.1
 RUN ["/bin/bash", "-c", "pip install --no-cache-dir mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu${CUDA//./}/torch${PYTORCH}/index.html"]
 
@@ -40,6 +41,10 @@ RUN pip install -r requirements.txt
 RUN pip install --no-cache-dir -e .
 
 # install ymir-exc sdk
-RUN pip install "git+https://github.com/yzbx/ymir-executor-sdk.git@ymir1.0.0"
+RUN pip install "git+https://github.com/yzbx/ymir-executor-sdk.git@ymir1.3.0"
 
-CMD bash
+ENV PYTHONPATH=.
+RUN mkdir -p /img-man && mv /mmsegmentation/ymir/img-man/*.yaml /img-man && \
+    echo "python3 /mmsegmentation/ymir/start.py" > /usr/bin/start.sh
+
+CMD bash /usr/bin/start.sh

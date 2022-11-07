@@ -4,7 +4,9 @@ import subprocess
 import sys
 
 from easydict import EasyDict as edict
-from ymir_exc.util import find_free_port, get_merged_config, write_ymir_training_result
+from ymir_exc.util import find_free_port, get_merged_config
+
+from ymir.ymir_util import convert_annotation_dataset, write_last_ymir_result_file
 
 
 def main() -> int:
@@ -12,6 +14,8 @@ def main() -> int:
     gpu_id: str = str(ymir_cfg.param.get('gpu_id', '0'))
     gpu_count: int = ymir_cfg.param.get('gpu_count', None) or len(gpu_id.split(','))
 
+    # preprocess, convert ymir dataset to trainable format
+    convert_annotation_dataset(ymir_cfg)
     config_file: str = ymir_cfg.param.get('config_file')
     work_dir: str = ymir_cfg.ymir.output.models_dir
     if gpu_count == 0:
@@ -40,7 +44,7 @@ def main() -> int:
     logging.info(f"training command: {cmd}")
     subprocess.run(cmd.split(), check=True)
 
-    write_ymir_training_result(ymir_cfg, map50=0, files=[], id='last')
+    write_last_ymir_result_file(ymir_cfg, id='last')
     return 0
 
 
