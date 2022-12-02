@@ -11,7 +11,7 @@ from easydict import EasyDict as edict
 from mmcv.utils import Config, ConfigDict
 from PIL import Image
 from tqdm import tqdm
-from ymir_exc.util import get_bool, get_weight_files, write_ymir_training_result
+from ymir_exc.util import (get_bool, get_weight_files, write_ymir_training_result)
 
 
 def _find_any(str1: str, sub_strs: List[str]) -> bool:
@@ -66,7 +66,31 @@ def get_best_weight_file(ymir_cfg: edict):
     return ""
 
 
-def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palatte_dict: Dict[Tuple, int], dtype: Any = np.uint8):
+def get_palette(ymir_cfg: edict):
+    """
+    load palette from labelmap.txt
+    """
+    label_map_txt = osp.join(ymir_cfg.ymir.input.annotations_dir, 'labelmap.txt')
+    with open(label_map_txt, 'r') as fp:
+        lines = fp.readlines()
+
+    # note: class_names maybe the subset of label_map
+    class_names = ymir_cfg.param.class_names
+    palette_dict: Dict[int, Tuple] = {}
+    for idx, line in enumerate(lines):
+        label, rgb = line.split(':')[0:2]
+        r, g, b = [int(x) for x in rgb.split(',')]
+        if label in class_names:
+            class_id = class_names.index(label)
+            palette_dict[class_id] = (r, g, b)
+            logging.info(f'label map: idx={idx}, class_id={class_id}, label={label} ({r}, {g}, {b})')
+        else:
+            logging.info(f'ignored label in labelmap.txt: idx={idx}, label={label} rgb={rgb}')
+
+    return palette_dict
+
+
+def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palette_dict: Dict[Tuple, int], dtype: Any = np.uint8):
     """
     map rgb color to label id, start from 1
     for the output mask, note to ignore label 0.
@@ -77,7 +101,7 @@ def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palatte_dict: Dict[
     np_label_id = np.ones(shape=(height, width), dtype=dtype) * 255
 
     # rgb = (0,0,0), idx = 0 can skip.
-    for rgb, idx in palatte_dict.items():
+    for rgb, idx in palette_dict.items():
         r = np_rgb_img[:, :, 0] == rgb[0]
         g = np_rgb_img[:, :, 1] == rgb[1]
         b = np_rgb_img[:, :, 2] == rgb[2]
@@ -118,17 +142,17 @@ def convert_annotation_dataset(ymir_cfg: edict):
 
     # note: class_names maybe the subset of label_map
     class_names = ymir_cfg.param.class_names
-    palatte_dict: Dict[Tuple, int] = {}
+    palette_dict: Dict[Tuple, int] = {}
     for idx, line in enumerate(lines):
         label, rgb = line.split(':')[0:2]
         r, g, b = [int(x) for x in rgb.split(',')]
         if label in class_names:
             class_id = class_names.index(label)
-            palatte_dict[(r, g, b)] = class_id
+            palette_dict[(r, g, b)] = class_id
             logging.info(f'label map: {class_id}={label} ({r}, {g}, {b})')
         else:
             logging.info(f'ignored label in labelmap.txt: {label} {rgb}')
-    # palatte_dict[(0, 0, 0)] = 255
+    # palette_dict[(0, 0, 0)] = 255
 
     for split in ['train', 'val']:
         with open(ymir_ann_files[split], 'r') as fp:
@@ -140,7 +164,7 @@ def convert_annotation_dataset(ymir_cfg: edict):
 
             new_ann_path = osp.join(out_dir, osp.relpath(ann_path, in_dir))
             os.makedirs(osp.dirname(new_ann_path), exist_ok=True)
-            convert_rgb_to_label_id(ann_path, new_ann_path, palatte_dict)
+            convert_rgb_to_label_id(ann_path, new_ann_path, palette_dict)
             fw.write(f'{img_path}\t{new_ann_path}\n')
         fw.close()
 

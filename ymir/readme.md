@@ -13,6 +13,7 @@
 | save_least_file | bool | True | save all the weight file or last weight file only |
 | cfg_options | str | optimizer.lr=0.02 | view utils/train.py for detail |
 | args_options | str | --seed 25 | view utils/train.py for detail |
+| export_format | str | seg-mask:raw | view ymir for detail |
 
 ### result.yaml demo
 

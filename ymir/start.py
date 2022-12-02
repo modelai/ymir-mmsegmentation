@@ -2,12 +2,23 @@ import os
 import sys
 
 from ymir_exc.executor import Executor
+from ymir_exc.util import find_free_port, get_merged_config
 
 
 def main() -> int:
+    ymir_cfg = get_merged_config()
+    gpu_id: str = str(ymir_cfg.param.get('gpu_id', '0'))
+    gpu_count: int = ymir_cfg.param.get('gpu_count', None) or len(gpu_id.split(','))
+
+    if gpu_count <= 1:
+        infer_cmd = 'python3 ymir/ymir_infer.py'
+    else:
+        port = find_free_port()
+        dist_cmd = f'-m torch.distributed.launch --master_port {port} --nproc_per_node {gpu_count}'
+        infer_cmd = f'python3 {dist_cmd} ymir/ymir_infer.py'
     apps = dict(training='python3 ymir/ymir_training.py',
                 mining='python3 ymir/ymir_mining.py',
-                infer='python3 ymir/ymir_infer.py')
+                infer=infer_cmd)
     executor = Executor(apps)
     executor.start()
 
