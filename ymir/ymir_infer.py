@@ -8,9 +8,10 @@ from typing import Dict, List, Tuple
 import mmcv
 import numpy as np
 from easydict import EasyDict as edict
+from mmcv.runner import wrap_fp16_model
 from tqdm import tqdm
-from ymir_exc.util import (YmirStage, get_merged_config, get_weight_files,
-                           write_ymir_monitor_process)
+from ymir_exc.util import (YmirStage, get_bool, get_merged_config,
+                           get_weight_files, write_ymir_monitor_process)
 
 from mmseg.apis import inference_segmentor, init_segmentor
 from ymir.tools.result_to_coco import convert
@@ -88,9 +89,13 @@ def main() -> int:
         raise Exception('not found pretrain weight file (*.pt or *.pth)')
 
     mmcv_config = mmcv.Config.fromfile(config_files[0])
+    mmcv_config.model.train_cfg = None
     model = init_segmentor(config=mmcv_config,
                            checkpoint=checkpoint_file,
                            device=f'cuda:{RANK}' if RANK > 0 else 'cuda:0')
+
+    if get_bool(ymir_cfg, 'fp16', False):
+        wrap_fp16_model(model)
 
     with open(ymir_cfg.ymir.input.candidate_index_file, 'r') as f:
         images = [line.strip() for line in f.readlines()]

@@ -1,0 +1,9 @@
+mining_algorithm: RSAL
+shm_size: '128G'
+max_superpixel_per_image: 1024  # max super pixel number in a image
+num_kept_mining_image: 5000  # max kept mining image number
+region_size: 32
+cost_type: 'region_count'  # region_count or click_count
+class_balance: True  # True or False
+samples_per_gpu: 2
+workers_per_gpu: 2

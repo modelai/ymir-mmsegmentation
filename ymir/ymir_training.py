@@ -6,13 +6,13 @@ import sys
 from easydict import EasyDict as edict
 from ymir_exc.util import find_free_port, get_merged_config
 
-from ymir.ymir_util import convert_annotation_dataset, write_last_ymir_result_file
+from ymir.ymir_util import (convert_annotation_dataset, write_last_ymir_result_file)
 
 
 def main() -> int:
     ymir_cfg: edict = get_merged_config()
     gpu_id: str = str(ymir_cfg.param.get('gpu_id', '0'))
-    gpu_count: int = ymir_cfg.param.get('gpu_count', None) or len(gpu_id.split(','))
+    gpu_count: int = len(gpu_id.split(','))
 
     # preprocess, convert ymir dataset to trainable format
     convert_annotation_dataset(ymir_cfg)

@@ -14,6 +14,7 @@
 | cfg_options | str | optimizer.lr=0.02 | view utils/train.py for detail |
 | args_options | str | --seed 25 | view utils/train.py for detail |
 | export_format | str | seg-mask:raw | view ymir for detail |
+| shm_size | str | 128G | share memory for docker container, recommand 128G for 4 gpu|
 
 ### result.yaml demo
 
@@ -38,4 +39,16 @@ model_stages:
 ```
 
 ## mining
+
+- modify origin mining algorithm from region-level to semi-image-level
+
+  - image will be annotated by region in semi-image-level
+
+  - annotated image will not be annotated again in semi-image-level
+
+  - return image level score list in semi-image-level
+
+![](./seg-miner.png)
+
 - [ViewAL: Active Learning with Viewpoint Entropy for Semantic Segmentation (CVPR 2020)](https://github.com/nihalsid/ViewAL)
+- [RSAL: Revisiting Superpixels for Active Learning in Semantic Segmentation With Realistic Annotation Costs (CVPR 2021)](https://github.com/cailile/Revisiting-Superpixels-for-Active-Learning)

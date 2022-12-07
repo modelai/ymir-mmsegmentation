@@ -8,3 +8,4 @@ save_least_file: True
 cfg_options: ''
 args_options: ''
 export_format: 'seg-mask:raw'  # mask annotation image:raw asset image
+shm_size: '128G'
