@@ -8,6 +8,7 @@ import cv2
 import mmcv
 import numpy as np
 import torch
+import torch.distributed as dist
 from easydict import EasyDict as edict
 from mmcv.engine import collect_results_cpu
 from mmcv.runner import wrap_fp16_model
@@ -78,11 +79,15 @@ def get_uncertainty_info(cfg: edict, result: torch.Tensor, superpixel: np.ndarra
     return unc_list
 
 
-def iter_fun(cfg, model, idx, batch, N, monitor_gap):
+def iter_fun(cfg, model, idx, batch, N, monitor_gap) -> List[Dict]:
     """
-    batch: Dict(img=[tensor,], img_metas=[xxx,])
+    batch: Dict(img=[tensor,], img_metas=[List[DataContainer],])
 
     return: image filename list and correspond topk scores
+        image_results: List[Dict]
+            image_filepath: image file path
+            superpixel_filepath: superpixel label file path
+            unc_list: uncertainty info for superpixel
     """
     # result = inference_segmentor(model, image_filename)[0]
     batch_img = batch['img'][0]
@@ -93,7 +98,7 @@ def iter_fun(cfg, model, idx, batch, N, monitor_gap):
     if idx % monitor_gap == 0 and RANK in [0, -1]:
         write_ymir_monitor_process(cfg, task='mining', naive_stage_percent=idx / N, stage=YmirStage.TASK)
 
-    results = []
+    image_results = []
     save_dir = cfg.ymir.output.root_dir
     os.makedirs(osp.join(save_dir, 'superpixel'), exist_ok=True)
     max_superpixel_per_image = int(cfg.param.max_superpixel_per_image)
@@ -106,13 +111,13 @@ def iter_fun(cfg, model, idx, batch, N, monitor_gap):
         superpixel_filepath = osp.join(save_dir, 'superpixel', osp.basename(meta['filename']))
         pil_img.save(superpixel_filepath)
 
-        results.append(dict(image_filepath=meta['filename'], superpixel_filepath=superpixel_filepath,
-                            unc_list=unc_list))
-    return results
+        image_results.append(
+            dict(image_filepath=meta['filename'], superpixel_filepath=superpixel_filepath, unc_list=unc_list))
+    return image_results
 
 
 def update_image_scores(region_scores: List[Dict], threshold: float, topk: int):
-    for dict_per_img in tqdm(region_scores):
+    for dict_per_img in tqdm(region_scores, desc='update image scores'):
         unc_list = sorted(dict_per_img['unc_list'], key=lambda a: a['score'], reverse=True)
         topk_scores = []
         image_score = 0
@@ -144,9 +149,17 @@ def main() -> int:
     if not checkpoint_file:
         raise Exception('not found pretrain weight file (*.pt or *.pth)')
 
+    index_file_path = ymir_cfg.ymir.input.candidate_index_file
+    with open(index_file_path, 'r') as f:
+        num_image_all_rank = len(f.readlines())
+
+    samples_per_gpu = int(ymir_cfg.param.samples_per_gpu)
+    max_barrier_times = num_image_all_rank // WORLD_SIZE // samples_per_gpu
     mmcv_cfg = mmcv.Config.fromfile(config_files[0])
     mmcv_cfg.model.train_cfg = None
-    model = init_segmentor(config=mmcv_cfg, checkpoint=checkpoint_file, device='cuda:0')
+    model = init_segmentor(config=mmcv_cfg,
+                           checkpoint=checkpoint_file,
+                           device='cuda:0' if RANK == -1 else f'cuda:{RANK}')
 
     if get_bool(ymir_cfg, 'fp16', False):
         wrap_fp16_model(model)
@@ -157,26 +170,24 @@ def main() -> int:
         raise Exception('find empty dataloader')
 
     if RANK in [0, -1]:
-        tbar = tqdm(dataloader)
+        tbar = tqdm(dataloader, desc='obtain image prediction')
     else:
         tbar = dataloader
 
     monitor_gap = max(1, N // 1000)
 
-    rank_region_result = []
+    rank_image_result = []
     for idx, batch in enumerate(tbar):
-        batch_region_result = iter_fun(ymir_cfg, model, idx, batch, N, monitor_gap)
-        rank_region_result.extend(batch_region_result)
-
-    index_file_path = ymir_cfg.ymir.input.candidate_index_file
-    with open(index_file_path, 'r') as f:
-        num_image_all_rank = len(f.readlines())
+        if idx < max_barrier_times and WORLD_SIZE > 1:
+            dist.barrier()
+        batch_image_result = iter_fun(ymir_cfg, model, idx, batch, N, monitor_gap)
+        rank_image_result.extend(batch_image_result)
 
     if WORLD_SIZE == 1:
-        all_region_result = rank_region_result
+        all_image_result = rank_image_result
     else:
         tmp_dir = osp.join(ymir_cfg.ymir.output.root_dir, 'tmp_dir')
-        all_region_result = collect_results_cpu(rank_region_result, num_image_all_rank, tmp_dir)
+        all_image_result = collect_results_cpu(rank_image_result, num_image_all_rank, tmp_dir)
 
     if RANK in [0, -1]:
         # note we remove normalization here
@@ -184,7 +195,7 @@ def main() -> int:
         if need_class_balance:
             class_num = len(ymir_cfg.param.class_names)
             region_num_per_class = np.zeros(shape=(class_num), dtype=np.float32)
-            for unc_info in tqdm(all_region_result):
+            for unc_info in tqdm(all_image_result, desc='apply class weight'):
                 for d in unc_info['unc_list']:
                     region_num_per_class[d['class_id']] += 1
 
@@ -192,7 +203,7 @@ def main() -> int:
             class_weights = np.exp(-region_num_per_class / total_region_num)
 
         all_region_scores = []
-        for img_idx, unc_info in enumerate(tqdm(all_region_result, desc='gather all region scores')):
+        for img_idx, unc_info in enumerate(tqdm(all_image_result, desc='gather all region scores')):
             for d in unc_info['unc_list']:
                 if need_class_balance:
                     d['score'] = d['score'] * class_weights[d['class_id']]
@@ -200,16 +211,17 @@ def main() -> int:
 
         # 80% scores <= threshold
         max_kept_mining_image = int(ymir_cfg.param.max_kept_mining_image)
-        percent = round(100 * max(0.8, 1 - max_kept_mining_image / num_image_all_rank))
+        topk_superpixel_score = int(ymir_cfg.param.topk_superpixel_score)
+
+        # make sure topk * num_images superpixel be labeled.
+        percent = round(100 * max(0.8, 1 - max_kept_mining_image * topk_superpixel_score / len(all_region_scores)))
         threshold = np.percentile(all_region_scores, percent)
         logging.info(f'region scores: len={len(all_region_scores)}, percentile-{percent}={threshold}')
         logging.info(f'region scores: max={np.max(all_region_scores)}, min={np.min(all_region_scores)}')
 
-        # add image_score
-        topk = int(ymir_cfg.param.topk_superpixel_score)
-        update_image_scores(all_region_result, threshold, topk)
-
-        all_image_result = sorted(all_region_result, key=lambda x: x['image_score'], reverse=True)
+        # add image_score and sort the image result by score
+        update_image_scores(all_image_result, threshold, topk_superpixel_score)
+        all_image_result = sorted(all_image_result, key=lambda x: x['image_score'], reverse=True)
 
         # create mask to label and remove superpixel file
         os.makedirs(osp.join(ymir_cfg.ymir.output.root_dir, 'masks'), exist_ok=True)

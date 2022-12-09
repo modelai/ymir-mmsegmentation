@@ -9,3 +9,4 @@ topk_superpixel_score: 3  # topk superpixel score = image score
 class_balance: True  # True or False
 samples_per_gpu: 2
 workers_per_gpu: 2
+fp16: True

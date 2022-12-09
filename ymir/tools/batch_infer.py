@@ -51,7 +51,5 @@ def get_dataloader(mmcv_cfg, ymir_cfg):
     test_loader_cfg['samples_per_gpu'] = samples_per_gpu
     test_loader_cfg['workers_per_gpu'] = workers_per_gpu
     # build the dataloader
-    print('test_loader_cfg: ')
-    pprint(test_loader_cfg)
     data_loader = build_dataloader(dataset, **test_loader_cfg)
     return data_loader
