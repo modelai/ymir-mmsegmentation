@@ -1,0 +1,4 @@
+opencv-contrib-python>=4.0
+easydict
+tqdm
+-e git+https://github.com/modelai/ymir-executor-sdk.git@ymir1.3.0

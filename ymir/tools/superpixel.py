@@ -3,9 +3,11 @@ copy from https://github.com/cailile/Revisiting-Superpixels-for-Active-Learning/
 """
 
 from math import sqrt
+from typing import Union
 
 import cv2
 import numpy as np
+from easydict import EasyDict as edict
 
 
 class SuperPixelSLIC(object):
@@ -59,14 +61,17 @@ class SuperPixelSEEDS(object):
         return self.slic_runner.getNumberOfSuperpixels()
 
 
-def get_superpixel(cfg, img, max_superpixels=1024):
-    algorithm = cfg.param.super_pixel_algorithm.lower()
+def get_superpixel(cfg: edict, img: Union[str, np.ndarray], max_superpixels: int = 1024):
+    if isinstance(img, str):
+        img = cv2.imread(img)
+
+    algorithm = cfg.param.superpixel_algorithm.lower()
     if algorithm == 'seeds':
         runner = SuperPixelSEEDS(img, num_superpixels=max_superpixels)
     elif algorithm in ['slic', 'slico', 'mslic']:
         height, width = img.shape[0:2]
         region_size = 2 * round(sqrt(height * width / max_superpixels))
-        runner = SuperPixelSLIC(img, region_size=region_size, algorithm=algorithm)
+        runner = SuperPixelSLIC(img, region_size=region_size, algorithm=algorithm)  # type: ignore
     else:
         available = ['slic', 'slico', 'mslic', 'seeds']
         raise Exception(f'unknown super pixel algorithm {algorithm}, not in {available}')

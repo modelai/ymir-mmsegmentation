@@ -12,13 +12,13 @@ def main() -> int:
 
     if gpu_count <= 1:
         infer_cmd = 'python3 ymir/ymir_infer.py'
+        mining_cmd = 'python3 ymir/ymir_mining.py'
     else:
         port = find_free_port()
         dist_cmd = f'-m torch.distributed.launch --master_port {port} --nproc_per_node {gpu_count}'
         infer_cmd = f'python3 {dist_cmd} ymir/ymir_infer.py'
-    apps = dict(training='python3 ymir/ymir_training.py',
-                mining='python3 ymir/ymir_mining.py',
-                infer=infer_cmd)
+        mining_cmd = f'python3 {dist_cmd} ymir/ymir_mining.py'
+    apps = dict(training='python3 ymir/ymir_training.py', mining=mining_cmd, infer=infer_cmd)
     executor = Executor(apps)
     executor.start()
 
