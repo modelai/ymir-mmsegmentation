@@ -7,7 +7,7 @@
 | config_file | str | configs/fastscnn/fast_scnn_lr0.12_8x4_160k_cityscapes.py | the basic config file |
 | max_iters | int | 20000 | training iters |
 | interval | int | 2000 | evaluation and checkpoint interval |
-| samplers_per_gpu | int | 2 | batch size per gpu |
+| samples_per_gpu | int | 2 | batch size per gpu |
 | workers_per_gpu | int | 2 | num_workers per gpu |
 | max_keep_ckpts | int | -1, 3 | the number of saved weight file |
 | save_least_file | bool | True | save all the weight file or last weight file only |
@@ -38,7 +38,31 @@ model_stages:
     timestamp: 1667802761
 ```
 
+### todo
+- [ ] image size
+
+## infer
+- no additional hyper-param
+
+### todo
+- [ ] batch infer
+
 ## mining
+
+| hyper-parameter | type | example | usage |
+| - | - | - | - |
+| mining_algorithm | str | RSAL | mining algorithm |
+| superpixel_algorithm | str | slico, slic, mslic, seeds | superpixel algorithm |
+| uncertainty_method | str | BvSB | method to compute uncertainty |
+| shm_size | str | 128G | use 32G shm_size per gpu |
+| max_superpixel_per_image | int | 1024 | max number of superpixel in one image |
+| max_kept_mining_image | int | 5000 | max number of image to label |
+| topk_superpixel_score | int | 3 | minimal number of superpixel to label in one image |
+| class balance | bool | True, False | consider class balance or not |
+| fp16 | bool | True, False | change model to fp16 to make mining faster |
+| samples_per_gpu | int | 2 | batch size per gpu |
+| workers_per_gpu | int | 2 | num_workers per gpu |
+
 
 - modify origin mining algorithm from region-level to semi-image-level
 
