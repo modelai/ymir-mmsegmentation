@@ -1,12 +1,18 @@
+import argparse
+
 from mmcv.utils import Config
+from tqdm import tqdm
 from ymir_exc.util import get_merged_config
-import numpy as np
 
 from mmseg.datasets import build_dataset
 from ymir.ymir_util import modify_mmcv_config
-from tqdm import tqdm
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--split', choices=['train', 'val'], default='train')
+    parser.add_argument('--test_num', type=int, default=10)
+
+    args = parser.parse_args()
     ymir_cfg = get_merged_config()
 
     mmcv_cfg = Config.fromfile(ymir_cfg.param.config_file)
@@ -14,12 +20,17 @@ if __name__ == '__main__':
 
     class_names = ymir_cfg.param.class_names
     num_classes = len(ymir_cfg.param.class_names)
+    if num_classes == 1:
+        num_classes = 2
+        class_names.append('background')
 
     print('class_name: ', class_names)
-    train_dataset = build_dataset(mmcv_cfg.data.train)
-    # val_dataset = build_dataset(mmcv_cfg.data.val)
+    if args.split == 'train':
+        split_dataset = build_dataset(mmcv_cfg.data.train)
+    else:
+        split_dataset = build_dataset(mmcv_cfg.data.val)
 
-    for dataset in [train_dataset]:
+    for dataset in [split_dataset]:
         count = {cls: 0 for cls in class_names}
         for img_id, d in enumerate(tqdm(dataset)):
             class_ids = d['gt_semantic_seg'].data.unique()
@@ -33,6 +44,6 @@ if __name__ == '__main__':
 
                     count[class_names[idx]] += 1
 
-            # if img_id >= 10:
-            #     break
+            if img_id >= args.test_num:
+                break
         print(count)

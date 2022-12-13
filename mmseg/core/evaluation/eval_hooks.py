@@ -7,7 +7,7 @@ import torch.distributed as dist
 from mmcv.runner import DistEvalHook as _DistEvalHook
 from mmcv.runner import EvalHook as _EvalHook
 from torch.nn.modules.batchnorm import _BatchNorm
-from ymir_exc.util import YmirStage, get_merged_config, write_ymir_monitor_process, write_ymir_training_result
+from ymir_exc.util import (YmirStage, get_merged_config, write_ymir_monitor_process, write_ymir_training_result)
 
 
 def write_best_ymir_result_file(ymir_cfg, runner) -> int:
@@ -111,6 +111,7 @@ class DistEvalHook(_DistEvalHook):
         super().__init__(*args, by_epoch=by_epoch, **kwargs)
         self.pre_eval = pre_eval
         self.latest_results = None
+        self.ymir_cfg = get_merged_config()
         if efficient_test:
             warnings.warn('DeprecationWarning: ``efficient_test`` for evaluation hook '
                           'is deprecated, the evaluation hook is CPU memory friendly '

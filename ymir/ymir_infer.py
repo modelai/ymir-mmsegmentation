@@ -16,7 +16,7 @@ from ymir_exc.util import (YmirStage, get_bool, get_merged_config,
 from mmseg.apis import inference_segmentor, init_segmentor
 from ymir.tools.result_to_coco import convert
 from ymir.ymir_dist import run_dist
-from ymir.ymir_util import get_best_weight_file, get_palette
+from ymir.ymir_util import get_best_weight_file
 
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
 RANK = int(os.getenv('RANK', -1))
@@ -35,7 +35,7 @@ def iter_fun(cfg, model, idx, image, N, monitor_gap):
 
 def save_infer_result(cfg: edict, results: List[Dict]) -> int:
     """
-    save the mask into out_dir
+    save the mask into out_dir, used for debug and visulization
     """
     if RANK not in [0, -1]:
         return 0
@@ -45,15 +45,12 @@ def save_infer_result(cfg: edict, results: List[Dict]) -> int:
 
     # use dataset palette if not defined in hyper-parameter
     palette_str: str = cfg.param.get('palette', '')
-    if not palette_str:
-        dict_palette: Dict[int, Tuple] = get_palette(cfg)
-    else:
-        list_palette: List[int] = [int(x) for x in palette_str.split(',')]
-        assert len(list_palette) == class_num * 3, f'length of palette {palette_str} should be {class_num * 3}'
+    list_palette: List[int] = [int(x) for x in palette_str.split(',')]
+    assert len(list_palette) == class_num * 3, f'length of palette {palette_str} should be {class_num * 3}'
 
-        dict_palette = {}
-        for i in range(class_num):
-            dict_palette[i] = (list_palette[3 * i], list_palette[3 * i + 1], list_palette[3 * i + 2])
+    dict_palette = {}
+    for i in range(class_num):
+        dict_palette[i] = (list_palette[3 * i], list_palette[3 * i + 1], list_palette[3 * i + 2])
 
     logging.info(f'use palette {dict_palette}')
 
@@ -71,7 +68,6 @@ def save_infer_result(cfg: edict, results: List[Dict]) -> int:
 
         # convert to BGR
         color_seg = color_seg[..., ::-1]
-
         mmcv.imwrite(color_seg, result_file)
     return 0
 

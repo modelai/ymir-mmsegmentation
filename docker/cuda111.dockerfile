@@ -38,10 +38,6 @@ COPY . /mmsegmentation
 WORKDIR /mmsegmentation
 ENV FORCE_CUDA="1"
 RUN pip install -r requirements.txt
-RUN pip install --no-cache-dir -e .
-
-# install ymir-exc sdk
-RUN pip install "git+https://github.com/yzbx/ymir-executor-sdk.git@ymir1.3.0"
 
 ENV PYTHONPATH=.
 RUN mkdir -p /img-man && mv /mmsegmentation/ymir/img-man/*.yaml /img-man && \

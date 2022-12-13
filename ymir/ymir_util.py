@@ -6,12 +6,15 @@ import os.path as osp
 import warnings
 from typing import Any, Dict, Iterable, List, Tuple, Union
 
+import cv2
 import numpy as np
 from easydict import EasyDict as edict
 from mmcv.utils import Config, ConfigDict
 from PIL import Image
+from pycocotools import coco
 from tqdm import tqdm
-from ymir_exc.util import (get_bool, get_weight_files, write_ymir_training_result)
+from ymir_exc.util import (get_bool, get_weight_files,
+                           write_ymir_training_result)
 
 
 def _find_any(str1: str, sub_strs: List[str]) -> bool:
@@ -66,30 +69,6 @@ def get_best_weight_file(ymir_cfg: edict):
     return ""
 
 
-def get_palette(ymir_cfg: edict):
-    """
-    load palette from labelmap.txt
-    """
-    label_map_txt = osp.join(ymir_cfg.ymir.input.annotations_dir, 'labelmap.txt')
-    with open(label_map_txt, 'r') as fp:
-        lines = fp.readlines()
-
-    # note: class_names maybe the subset of label_map
-    class_names = ymir_cfg.param.class_names
-    palette_dict: Dict[int, Tuple] = {}
-    for idx, line in enumerate(lines):
-        label, rgb = line.split(':')[0:2]
-        r, g, b = [int(x) for x in rgb.split(',')]
-        if label in class_names:
-            class_id = class_names.index(label)
-            palette_dict[class_id] = (r, g, b)
-            logging.info(f'label map: idx={idx}, class_id={class_id}, label={label} ({r}, {g}, {b})')
-        else:
-            logging.info(f'ignored label in labelmap.txt: idx={idx}, label={label} rgb={rgb}')
-
-    return palette_dict
-
-
 def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palette_dict: Dict[Tuple, int], dtype: Any = np.uint8):
     """
     map rgb color to label id, start from 1
@@ -114,18 +93,24 @@ def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palette_dict: Dict[
     pil_label_id_img.save(label_id_img)
 
 
-def convert_annotation_dataset(ymir_cfg: edict):
+def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
     """
-    convert annotation images from RGB mode to label id mode
+    convert annotation images from coco.json to annotation image
+    input directory:
+
     return new index files
     note: call before ddp, avoid multi-process problem
     """
+    assert ymir_cfg.ymir.run_training, 'only training task need to convert dataset'
+
     ymir_ann_files = dict(train=ymir_cfg.ymir.input.training_index_file,
                           val=ymir_cfg.ymir.input.val_index_file,
                           test=ymir_cfg.ymir.input.candidate_index_file)
 
     in_dir = ymir_cfg.ymir.input.root_dir
     out_dir = ymir_cfg.ymir.output.root_dir
+    # ann_dir = ymir_cfg.ymir.input.annotations_dir
+    img_dir = ymir_cfg.ymir.input.assets_dir
     new_ann_files = dict()
     for split in ['train', 'val']:
         new_ann_files[split] = osp.join(out_dir, osp.relpath(ymir_ann_files[split], in_dir))
@@ -133,39 +118,65 @@ def convert_annotation_dataset(ymir_cfg: edict):
     new_ann_files['test'] = ymir_ann_files['test']
     # call before ddp, avoid multi-process problem, just to return new_ann_files
     logging.info(f'convert annotation dataset to: {new_ann_files}')
-    if osp.exists(new_ann_files['train']):
+    if osp.exists(new_ann_files['train']) and not overwrite:
         return new_ann_files
 
-    label_map_txt = osp.join(ymir_cfg.ymir.input.annotations_dir, 'labelmap.txt')
-    with open(label_map_txt, 'r') as fp:
-        lines = fp.readlines()
-
-    # note: class_names maybe the subset of label_map
-    class_names = ymir_cfg.param.class_names
-    palette_dict: Dict[Tuple, int] = {}
-    for idx, line in enumerate(lines):
-        label, rgb = line.split(':')[0:2]
-        r, g, b = [int(x) for x in rgb.split(',')]
-        if label in class_names:
-            class_id = class_names.index(label)
-            palette_dict[(r, g, b)] = class_id
-            logging.info(f'label map: {class_id}={label} ({r}, {g}, {b})')
-        else:
-            logging.info(f'ignored label in labelmap.txt: {label} {rgb}')
-    # palette_dict[(0, 0, 0)] = 255
+    # note: if only one class_name, we need generate a background class
+    class_names: List[str] = ymir_cfg.param.class_names
+    add_background_class = len(class_names) == 1
 
     for split in ['train', 'val']:
         with open(ymir_ann_files[split], 'r') as fp:
             lines = fp.readlines()
 
-        fw = open(new_ann_files[split], 'w')
-        for line in tqdm(lines, desc=f'convert {split} dataset'):
-            img_path, ann_path = line.strip().split()
+        imgname2imgpath = {}
+        for line in tqdm(lines, desc='generate image filename to filepath dict'):
+            img_path = line.split()[0]
+            filename = os.path.basename(img_path)
+            imgname2imgpath[filename] = img_path
 
-            new_ann_path = osp.join(out_dir, osp.relpath(ann_path, in_dir))
+        logging.info(f'images in ymir {split} index file: {len(imgname2imgpath)}')
+        ann_json_file = lines[0].split()[1]
+        coco_ann = coco.COCO(ann_json_file)
+
+        img_ids = coco_ann.getImgIds()
+        logging.info(f'images in coco {split} json file: {len(img_ids)}')
+        fw = open(new_ann_files[split], 'w')
+        for img_id in tqdm(img_ids, desc='convert coco annotations to training id mask'):
+            filename = coco_ann.imgs[img_id]['file_name']
+            # train-index file and val-index file share the same coco json file
+            if filename not in imgname2imgpath:
+                continue
+
+            ann_ids = coco_ann.getAnnIds(imgIds=[img_id])
+            width = coco_ann.imgs[img_id]['width']
+            height = coco_ann.imgs[img_id]['height']
+
+            if add_background_class:
+                # generate background class with training_id = 1
+                training_id_mask = np.ones(shape=(height, width), dtype=np.uint8)
+            else:
+                # 255 is the ignore index
+                training_id_mask = np.ones(shape=(height, width), dtype=np.uint8) * 255
+
+            for ann_id in ann_ids:
+                ann = coco_ann.anns[ann_id]
+                mask = coco_ann.annToMask(ann)
+                class_name = coco_ann.cats[ann['category_id']]['name']
+                class_id = class_names.index(class_name)
+                training_id_mask[mask] = class_id
+
+            if os.path.isabs(filename):
+                filename = os.path.relpath(path=filename, start=img_dir)
+                img_path = filename
+            else:
+                img_path = imgname2imgpath[osp.basename(filename)]
+
+            new_ann_path = osp.join(out_dir, 'annotations', filename)
             os.makedirs(osp.dirname(new_ann_path), exist_ok=True)
-            convert_rgb_to_label_id(ann_path, new_ann_path, palette_dict)
+            cv2.imwrite(new_ann_path, training_id_mask)
             fw.write(f'{img_path}\t{new_ann_path}\n')
+
         fw.close()
 
     return new_ann_files
@@ -209,6 +220,11 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
     mmcv_cfg.data.workers_per_gpu = workers_per_gpu
 
     num_classes = len(ymir_cfg.param.class_names)
+    if num_classes == 1:
+        # add background class when only one class
+        num_classes = 2
+        ymir_cfg.param.class_names.append('background')
+
     recursive_modify(mmcv_cfg.model, 'num_classes', num_classes)
 
     for split in ['train', 'val', 'test']:

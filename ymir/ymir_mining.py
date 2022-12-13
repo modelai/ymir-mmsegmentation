@@ -193,7 +193,8 @@ def main() -> int:
         # note we remove normalization here
         need_class_balance: bool = get_bool(ymir_cfg, 'class_balance', False)
         if need_class_balance:
-            class_num = len(ymir_cfg.param.class_names)
+            # add background class for single class case
+            class_num = max(2, len(ymir_cfg.param.class_names))
             region_num_per_class = np.zeros(shape=(class_num), dtype=np.float32)
             for unc_info in tqdm(all_image_result, desc='apply class weight'):
                 for d in unc_info['unc_list']:

@@ -1,11 +1,14 @@
-from pprint import pprint
-
+from easydict import EasyDict as edict
 from mmcv.runner import init_dist
+from mmcv.utils import Config
 
 from mmseg.datasets import build_dataloader, build_dataset
 
 
-def get_dataloader(mmcv_cfg, ymir_cfg):
+def get_dataloader(mmcv_cfg: Config, ymir_cfg: edict):
+    """
+    generate dataloader for ymir mining and infer task
+    """
     if ymir_cfg.param.get('aug_test', False):
         mmcv_cfg.data.test.pipeline[1].img_ratios = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
         mmcv_cfg.data.test.pipeline[1].flip = True

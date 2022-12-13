@@ -54,7 +54,14 @@ def convert(ymir_cfg: edict, results: List[Dict]):
     """
     root_dir = ymir_cfg.ymir.output.root_dir
     class_names = ymir_cfg.param.class_names
+    if len(class_names) == 1:
+        add_background_class = True
+        class_names.append('background')
+    else:
+        add_background_class = False
+
     categories = []
+    # categories should start from 0
     for idx, name in enumerate(class_names):
         categories.append(dict(id=idx, name=name, supercategory='none'))
 
@@ -75,10 +82,14 @@ def convert(ymir_cfg: edict, results: List[Dict]):
 
         coco_output["images"].append(image_info)  # type: ignore
 
-        # category_id start from 0
+        # category_id === class_id start from 0
         unique_ids = np.unique(result)
         for np_class_id in unique_ids:
             class_id = int(np_class_id)
+            # remove background class in infer-result
+            if add_background_class and class_id > 0:
+                continue
+
             assert class_id < len(class_names), f'class_id {class_id} must < class_num {len(class_names)}'
             category_info = {'id': class_id, 'is_crowd': True}
             binary_mask = result == np_class_id
@@ -94,5 +105,5 @@ def convert(ymir_cfg: edict, results: List[Dict]):
 
         image_id += 1
 
-    with open('{}/instances_val.json'.format(root_dir), 'w') as output_json_file:
+    with open('{}/coco-infer-result.json'.format(root_dir), 'w') as output_json_file:
         json.dump(coco_output, output_json_file)
