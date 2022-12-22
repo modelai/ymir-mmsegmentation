@@ -26,11 +26,11 @@ RUN sed -i 's#http://archive.ubuntu.com#https://mirrors.ustc.edu.cn#g' /etc/apt/
 
 RUN conda clean --all
 
-# Install MMCV
+# Install MMCV, 1.3.13 <= MMCV < 1.7.0
 ARG PYTORCH="1.8.0"
 ARG CUDA="11.1"
 ARG MMCV=1.6.1
-RUN ["/bin/bash", "-c", "pip install --no-cache-dir mmcv-full -f https://download.openmmlab.com/mmcv/dist/cu${CUDA//./}/torch${PYTORCH}/index.html"]
+RUN ["/bin/bash", "-c", "pip install --no-cache-dir mmcv-full==${MMCV} -f https://download.openmmlab.com/mmcv/dist/cu${CUDA//./}/torch${PYTORCH}/index.html"]
 
 # Install MMSegmentation
 # RUN git clone https://github.com/open-mmlab/mmsegmentation.git /mmsegmentation
@@ -39,6 +39,7 @@ WORKDIR /mmsegmentation
 ENV FORCE_CUDA="1"
 RUN pip install -r requirements.txt
 
+ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 ENV PYTHONPATH=.
 RUN mkdir -p /img-man && mv /mmsegmentation/ymir/img-man/*.yaml /img-man && \
     echo "python3 /mmsegmentation/ymir/start.py" > /usr/bin/start.sh

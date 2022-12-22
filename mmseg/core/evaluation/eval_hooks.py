@@ -17,8 +17,9 @@ def write_best_ymir_result_file(ymir_cfg, runner) -> int:
         mmseg_config_files = glob.glob(osp.join(ymir_cfg.ymir.output.models_dir, '*.py'))
 
         # note some early weight files may be removed, use the same id to ensure the weight files be valid.
+        evaluation_result = dict(mIoU=float(best_score))
         write_ymir_training_result(ymir_cfg,
-                                   map50=float(best_score),
+                                   evaluation_result=evaluation_result,
                                    files=mmseg_config_files + [best_ckpt_path],
                                    id='best')
     return 0

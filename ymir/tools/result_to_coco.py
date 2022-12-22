@@ -46,7 +46,7 @@ CATEGORIES = [
 ]
 
 
-def convert(ymir_cfg: edict, results: List[Dict]):
+def convert(ymir_cfg: edict, results: List[Dict], with_blank_area: bool):
     """
     convert ymir infer result to coco instance segmentation format
     the mask is encode in compressed rle
@@ -54,11 +54,6 @@ def convert(ymir_cfg: edict, results: List[Dict]):
     """
     root_dir = ymir_cfg.ymir.output.root_dir
     class_names = ymir_cfg.param.class_names
-    if len(class_names) == 1:
-        add_background_class = True
-        class_names.append('background')
-    else:
-        add_background_class = False
 
     categories = []
     # categories should start from 0
@@ -85,9 +80,13 @@ def convert(ymir_cfg: edict, results: List[Dict]):
         # category_id === class_id start from 0
         unique_ids = np.unique(result)
         for np_class_id in unique_ids:
-            class_id = int(np_class_id)
+            if with_blank_area:
+                class_id = int(np_class_id) - 1
+            else:
+                class_id = int(np_class_id)
+
             # remove background class in infer-result
-            if add_background_class and class_id > 0:
+            if with_blank_area and class_id < 0:
                 continue
 
             assert class_id < len(class_names), f'class_id {class_id} must < class_num {len(class_names)}'

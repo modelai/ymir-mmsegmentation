@@ -99,7 +99,7 @@ def main() -> int:
     results = run_dist(images, partial(iter_fun, ymir_cfg, model))
 
     # save_infer_result(ymir_cfg, results)
-    convert(ymir_cfg, results)
+    convert(ymir_cfg, results, mmcv_config.with_blank_area)
     return 0
 
 

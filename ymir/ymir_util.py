@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import os.path as osp
+import random
 import warnings
 from typing import Any, Dict, Iterable, List, Tuple, Union
 
@@ -12,7 +13,9 @@ from easydict import EasyDict as edict
 from mmcv.utils import Config, ConfigDict
 from PIL import Image
 from pycocotools import coco
+from pycocotools import mask as maskUtils
 from tqdm import tqdm
+from ymir_exc.dataset_convert.ymir2mmseg import find_blank_area_in_dataset
 from ymir_exc.util import (get_bool, get_weight_files,
                            write_ymir_training_result)
 
@@ -69,30 +72,6 @@ def get_best_weight_file(ymir_cfg: edict):
     return ""
 
 
-def convert_rgb_to_label_id(rgb_img: str, label_id_img: str, palette_dict: Dict[Tuple, int], dtype: Any = np.uint8):
-    """
-    map rgb color to label id, start from 1
-    for the output mask, note to ignore label 0.
-    """
-    pil_rgb_img = Image.open(rgb_img)
-    np_rgb_img = np.array(pil_rgb_img)
-    height, width = np_rgb_img.shape[0:2]
-    np_label_id = np.ones(shape=(height, width), dtype=dtype) * 255
-
-    # rgb = (0,0,0), idx = 0 can skip.
-    for rgb, idx in palette_dict.items():
-        r = np_rgb_img[:, :, 0] == rgb[0]
-        g = np_rgb_img[:, :, 1] == rgb[1]
-        b = np_rgb_img[:, :, 2] == rgb[2]
-
-        np_label_id[r & g & b] = idx
-
-    # mode = L: 8-bit unsigned integer pixels
-    # mode = I: 32-bit signed integer pixels
-    pil_label_id_img = Image.fromarray(np_label_id, mode='L' if dtype == np.uint8 else 'I')
-    pil_label_id_img.save(label_id_img)
-
-
 def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
     """
     convert annotation images from coco.json to annotation image
@@ -121,9 +100,9 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
     if osp.exists(new_ann_files['train']) and not overwrite:
         return new_ann_files
 
-    # note: if only one class_name, we need generate a background class
+    # note: if only exist blank area, we need generate a background class
+    with_blank_area = find_blank_area_in_dataset(ymir_cfg)
     class_names: List[str] = ymir_cfg.param.class_names
-    add_background_class = len(class_names) == 1
 
     for split in ['train', 'val']:
         with open(ymir_ann_files[split], 'r') as fp:
@@ -145,6 +124,7 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
         for img_id in tqdm(img_ids, desc='convert coco annotations to training id mask'):
             filename = coco_ann.imgs[img_id]['file_name']
             # train-index file and val-index file share the same coco json file
+            # so we need to filter the annotations according to index file
             if filename not in imgname2imgpath:
                 continue
 
@@ -152,11 +132,10 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
             width = coco_ann.imgs[img_id]['width']
             height = coco_ann.imgs[img_id]['height']
 
-            if add_background_class:
-                # generate background class with training_id = 1
-                training_id_mask = np.ones(shape=(height, width), dtype=np.uint8)
+            if with_blank_area:
+                # background class id = 0
+                training_id_mask = np.zeros(shape=(height, width), dtype=np.uint8)
             else:
-                # 255 is the ignore index
                 training_id_mask = np.ones(shape=(height, width), dtype=np.uint8) * 255
 
             for ann_id in ann_ids:
@@ -164,7 +143,11 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
                 mask = coco_ann.annToMask(ann)
                 class_name = coco_ann.cats[ann['category_id']]['name']
                 class_id = class_names.index(class_name)
-                training_id_mask[mask] = class_id
+                if with_blank_area:
+                    # start from 1, class_name = ymir_background with class_id = 0
+                    training_id_mask[mask] = class_id + 1
+                else:
+                    training_id_mask[mask] = class_id
 
             if os.path.isabs(filename):
                 filename = os.path.relpath(path=filename, start=img_dir)
@@ -219,12 +202,14 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
     mmcv_cfg.data.samples_per_gpu = samples_per_gpu
     mmcv_cfg.data.workers_per_gpu = workers_per_gpu
 
-    num_classes = len(ymir_cfg.param.class_names)
-    if num_classes == 1:
-        # add background class when only one class
-        num_classes = 2
-        ymir_cfg.param.class_names.append('background')
-
+    with_blank_area = find_blank_area_in_dataset(ymir_cfg)
+    mmcv_cfg.with_blank_area = with_blank_area  # save it for infer and mining
+    if with_blank_area:
+        assert 'ymir_background' not in ymir_cfg.param.class_names
+        class_names = ['ymir_background'] + ymir_cfg.param.class_names
+    else:
+        class_names = ymir_cfg.param.class_names
+    num_classes = len(class_names)
     recursive_modify(mmcv_cfg.model, 'num_classes', num_classes)
 
     for split in ['train', 'val', 'test']:
@@ -234,7 +219,7 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
                                 seg_map_suffix='.png',
                                 img_dir=ymir_cfg.ymir.input.assets_dir,
                                 ann_dir=ymir_cfg.ymir.input.annotations_dir,
-                                classes=ymir_cfg.param.class_names,
+                                classes=class_names,
                                 palette=ymir_cfg.param.get('palette', None),
                                 reduce_zero_label=False,
                                 data_root=ymir_cfg.ymir.input.root_dir)
@@ -343,13 +328,17 @@ def write_last_ymir_result_file(cfg: edict, id: str = 'last'):
 
     # this file is soft link
     last_ckpt_path = osp.join(cfg.ymir.output.models_dir, 'latest.pth')
+    evaluation_result = dict(mIoU=float(last_miou))
     if save_least_file:
         mmseg_config_files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.py'))
 
-        write_ymir_training_result(cfg, map50=float(last_miou), files=mmseg_config_files + [last_ckpt_path], id=id)
+        write_ymir_training_result(cfg,
+                                   evaluation_result=evaluation_result,
+                                   files=mmseg_config_files + [last_ckpt_path],
+                                   id=id)
     else:
         files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.py'))
 
         log_files = [f for f in files if not f.endswith('.pth')]
 
-        write_ymir_training_result(cfg, map50=float(last_miou), files=log_files + [last_ckpt_path], id=id)
+        write_ymir_training_result(cfg, evaluation_result=evaluation_result, files=log_files + [last_ckpt_path], id=id)

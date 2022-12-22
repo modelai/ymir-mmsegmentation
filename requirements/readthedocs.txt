@@ -1,4 +1,4 @@
-mmcv
+mmcv>=1.3.13, <1.7.0
 prettytable
 torch
 torchvision

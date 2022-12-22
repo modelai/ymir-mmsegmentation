@@ -11,6 +11,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--split', choices=['train', 'val'], default='train')
     parser.add_argument('--test_num', type=int, default=10)
+    parser.add_argument('--without_background', action='store_true')
 
     args = parser.parse_args()
     ymir_cfg = get_merged_config()
@@ -18,11 +19,12 @@ if __name__ == '__main__':
     mmcv_cfg = Config.fromfile(ymir_cfg.param.config_file)
     modify_mmcv_config(ymir_cfg, mmcv_cfg)
 
-    class_names = ymir_cfg.param.class_names
-    num_classes = len(ymir_cfg.param.class_names)
-    if num_classes == 1:
-        num_classes = 2
-        class_names.append('background')
+    if args.without_background:
+        class_names = ymir_cfg.param.class_names
+    else:
+        class_names = ['ymir_background'] + ymir_cfg.param.class_names
+
+    num_classes = len(class_names)
 
     print('class_name: ', class_names)
     if args.split == 'train':

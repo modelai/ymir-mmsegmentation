@@ -23,9 +23,17 @@ ymir_eg1800
     - xxx.jpg
   - gt
     - coco-annotations.json
+
+# cmd
+python ymir/tools/eg1800_to_ymir.py --in-dir /xxx/EG1800 --out-dir /xxx/eg_ymir --split train
+python ymir/tools/eg1800_to_ymir.py --in-dir /xxx/EG1800 --out-dir /xxx/eg_ymir --split val
+
+empty mask for /xxx/EG1800/Images/02188.png /xxx/EG1800/Labels/02188.png 0
+empty mask for /xxx/EG1800/Images/02299.png /xxx/EG1800/Labels/02299.png 1
 """
 
 import argparse
+import glob
 import json
 import os
 import os.path as osp
@@ -75,9 +83,9 @@ if __name__ == '__main__':
 
     image_id = 1
     annotation_id = 1
-    out_dir = osp.join(args.out_dir, args.split)
-    os.makedirs(osp.join(out_dir, 'images'), exist_ok=True)
-    os.makedirs(osp.join(out_dir, 'gt'), exist_ok=True)
+    rootdir_split = osp.join(args.out_dir, args.split)
+    os.makedirs(osp.join(rootdir_split, 'images'), exist_ok=True)
+    os.makedirs(osp.join(rootdir_split, 'gt'), exist_ok=True)
 
     for line in tqdm(lines):
         img_file = os.path.join(args.in_dir, 'Images', line.strip())
@@ -97,7 +105,7 @@ if __name__ == '__main__':
         else:
             class_values = [0, 1]
 
-        for class_id, class_value in [class_values]:
+        for class_id, class_value in enumerate(class_values):
             category_info = {'id': class_id, 'is_crowd': True}
             binary_mask = ann == class_value
 
@@ -110,10 +118,27 @@ if __name__ == '__main__':
             if annotation_info is not None:
                 coco_output["annotations"].append(annotation_info)  # type: ignore
                 annotation_id = annotation_id + 1
+            else:
+                print(f'empty mask for {img_file} {ann_file} {class_value}')
         image_id += 1
 
-        copy_img_file = osp.join(out_dir, 'images', line.strip())
+        copy_img_file = osp.join(rootdir_split, 'images', line.strip())
         os.system(f'cp {img_file} {copy_img_file}')
 
-    with open(osp.join(out_dir, 'gt', 'coco-annotations.json'), 'w') as output_json_file:
-        json.dump(coco_output, output_json_file)
+    with open(osp.join(rootdir_split, 'gt', 'coco-annotations.json'), 'w') as fw:
+        json.dump(coco_output, fw)
+
+    # generate fake index file
+    img_files = glob.glob(osp.join(rootdir_split, 'images', '*'))
+    rel_ann_path = osp.join(args.split, 'gt', 'coco-annotations.json')
+    with open(osp.join(args.out_dir, f'{args.split}-index.tsv'), 'w') as fw:
+        for img_file in tqdm(img_files):
+            rel_img_path = os.path.relpath(img_file, args.out_dir)
+            fw.write(f'/in/{rel_img_path}\t/in/{rel_ann_path}\n')
+
+    if args.split == 'val':
+        # generate candidate index
+        with open(osp.join(args.out_dir, 'candidate-index.tsv'), 'w') as fw:
+            for img_file in tqdm(img_files):
+                rel_img_path = os.path.relpath(img_file, args.out_dir)
+                fw.write(f'/in/{rel_img_path}\n')
