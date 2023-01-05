@@ -9,3 +9,4 @@ cfg_options: ''
 args_options: ''
 export_format: 'seg-coco:raw'  # mask annotation image:raw asset image
 shm_size: '128G'
+ignore_blank_area: False  # train model with blank area or not

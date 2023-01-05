@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import datetime
-import json
 import os.path as osp
 from typing import Dict, List
 
@@ -52,7 +51,6 @@ def convert(ymir_cfg: edict, results: List[Dict], with_blank_area: bool):
     the mask is encode in compressed rle
     the is_crowd is True
     """
-    root_dir = ymir_cfg.ymir.output.root_dir
     class_names = ymir_cfg.param.class_names
 
     categories = []
@@ -104,5 +102,4 @@ def convert(ymir_cfg: edict, results: List[Dict], with_blank_area: bool):
 
         image_id += 1
 
-    with open('{}/coco-infer-result.json'.format(root_dir), 'w') as output_json_file:
-        json.dump(coco_output, output_json_file)
+    return coco_output

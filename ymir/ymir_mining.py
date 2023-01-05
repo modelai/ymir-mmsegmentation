@@ -1,7 +1,13 @@
+"""
+RSAL: Revisiting Superpixels for Active Learning in Semantic Segmentation With Realistic Annotation Costs (CVPR 2021)
+
+view code https://github.com/cailile/Revisiting-Superpixels-for-Active-Learning
+"""
 import logging
 import os
 import os.path as osp
 import sys
+import warnings
 from typing import Dict, List
 
 import cv2
@@ -11,7 +17,7 @@ import torch
 import torch.distributed as dist
 from easydict import EasyDict as edict
 from mmcv.engine import collect_results_cpu
-from mmcv.runner import wrap_fp16_model
+from mmcv.runner import init_dist, wrap_fp16_model
 from PIL import Image
 from tqdm import tqdm
 from ymir_exc import result_writer as rw
@@ -67,8 +73,13 @@ def get_uncertainty_info(cfg: edict, result: torch.Tensor, superpixel: np.ndarra
     unc_list: List[Dict] = []
     for idx in range(Max):
         y, x = np.where(superpixel == idx)
-        score = float(np.mean(np_unc[y, x]))
 
+        # remove empty superpixel
+        if len(x) == 0:
+            warnings.warn(f'remove empty superpixel {idx}')
+            continue
+
+        score = float(np.mean(np_unc[y, x]))
         d = dict(superpixel_idx=idx, score=score)
         if need_class_balance:
             unique, unique_counts = np.unique(pred[y, x], return_counts=True)
@@ -138,6 +149,9 @@ def update_image_scores(region_scores: List[Dict], threshold: float, topk: int):
 
 
 def main() -> int:
+    if LOCAL_RANK != -1:
+        init_dist(launcher='pytorch', backend="nccl" if dist.is_nccl_available() else "gloo")
+
     ymir_cfg: edict = get_merged_config()
     config_files = get_weight_files(ymir_cfg, suffix=('.py'))
     if len(config_files) == 0:

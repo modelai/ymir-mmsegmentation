@@ -62,6 +62,7 @@ model_stages:
 | fp16 | bool | True, False | change model to fp16 to make mining faster |
 | samples_per_gpu | int | 2 | batch size per gpu |
 | workers_per_gpu | int | 2 | num_workers per gpu |
+| ignore_blank_area | bool | False | train model with `ymir_background class` or not |
 
 
 - modify origin mining algorithm from region-level to semi-image-level

@@ -23,7 +23,6 @@ def get_dataloader(mmcv_cfg: Config, ymir_cfg: edict):
     if gpu_count > 1:
         dist = True
         mmcv_cfg.gpu_ids = [int(x) for x in gpu_id.split(',')]
-        init_dist('pytorch', **mmcv_cfg.dist_params)
     else:
         dist = False
         mmcv_cfg.gpu_ids = [int(x) for x in gpu_id.split(',')]

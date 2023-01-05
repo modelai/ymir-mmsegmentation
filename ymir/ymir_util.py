@@ -3,21 +3,17 @@ import json
 import logging
 import os
 import os.path as osp
-import random
 import warnings
-from typing import Any, Dict, Iterable, List, Tuple, Union
+from typing import Any, Iterable, List, Union
 
 import cv2
 import numpy as np
 from easydict import EasyDict as edict
 from mmcv.utils import Config, ConfigDict
-from PIL import Image
 from pycocotools import coco
-from pycocotools import mask as maskUtils
 from tqdm import tqdm
-from ymir_exc.dataset_convert.ymir2mmseg import find_blank_area_in_dataset
-from ymir_exc.util import (get_bool, get_weight_files,
-                           write_ymir_training_result)
+from ymir_exc.dataset_convert.ymir2mmseg import train_with_black_area_or_not
+from ymir_exc.util import (get_bool, get_weight_files, write_ymir_training_result)
 
 
 def _find_any(str1: str, sub_strs: List[str]) -> bool:
@@ -101,7 +97,7 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
         return new_ann_files
 
     # note: if only exist blank area, we need generate a background class
-    with_blank_area = find_blank_area_in_dataset(ymir_cfg)
+    with_blank_area = train_with_black_area_or_not(ymir_cfg)
     class_names: List[str] = ymir_cfg.param.class_names
 
     for split in ['train', 'val']:
@@ -136,7 +132,7 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
                 # background class id = 0
                 training_id_mask = np.zeros(shape=(height, width), dtype=np.uint8)
             else:
-                training_id_mask = np.ones(shape=(height, width), dtype=np.uint8) * 255
+                training_id_mask = np.ones(shape=(height, width), dtype=np.uint8) * 255  # type: ignore
 
             for ann_id in ann_ids:
                 ann = coco_ann.anns[ann_id]
@@ -145,9 +141,9 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
                 class_id = class_names.index(class_name)
                 if with_blank_area:
                     # start from 1, class_name = ymir_background with class_id = 0
-                    training_id_mask[mask] = class_id + 1
+                    training_id_mask[mask == 1] = class_id + 1
                 else:
-                    training_id_mask[mask] = class_id
+                    training_id_mask[mask == 1] = class_id
 
             if os.path.isabs(filename):
                 filename = os.path.relpath(path=filename, start=img_dir)
@@ -202,7 +198,7 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
     mmcv_cfg.data.samples_per_gpu = samples_per_gpu
     mmcv_cfg.data.workers_per_gpu = workers_per_gpu
 
-    with_blank_area = find_blank_area_in_dataset(ymir_cfg)
+    with_blank_area = train_with_black_area_or_not(ymir_cfg)
     mmcv_cfg.with_blank_area = with_blank_area  # save it for infer and mining
     if with_blank_area:
         assert 'ymir_background' not in ymir_cfg.param.class_names
@@ -328,7 +324,7 @@ def write_last_ymir_result_file(cfg: edict, id: str = 'last'):
 
     # this file is soft link
     last_ckpt_path = osp.join(cfg.ymir.output.models_dir, 'latest.pth')
-    evaluation_result = dict(mIoU=float(last_miou))
+    evaluation_result = dict(mIoU=float(last_miou), mAcc=float(val_result['mAcc']), aAcc=float(val_result['aAcc']))
     if save_least_file:
         mmseg_config_files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.py'))
 
