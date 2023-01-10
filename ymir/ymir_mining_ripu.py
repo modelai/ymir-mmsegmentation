@@ -5,30 +5,25 @@ Towards Fewer Annotations: Active Learning via Region Impurity and
 view code: https://github.com/BIT-DA/RIPU
 """
 
-import logging
 import os
 import os.path as osp
 import sys
-import warnings
 from typing import Dict, List
 
-import cv2
 import mmcv
-import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from easydict import EasyDict as edict
 from mmcv.engine import collect_results_cpu
 from mmcv.runner import init_dist, wrap_fp16_model
-from PIL import Image
 from tqdm import tqdm
 from ymir_exc import result_writer as rw
-from ymir_exc.util import (YmirStage, get_bool, get_merged_config, get_weight_files, write_ymir_monitor_process)
+from ymir_exc.util import (YmirStage, get_bool, get_merged_config,
+                           get_weight_files, write_ymir_monitor_process)
 
 from mmseg.apis import init_segmentor
 from ymir.tools.batch_infer import get_dataloader
-from ymir.tools.superpixel import get_superpixel
 from ymir.ymir_util import get_best_weight_file
 
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html

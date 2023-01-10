@@ -17,7 +17,7 @@ def main() -> int:
         port = find_free_port()
         dist_cmd = f'-m torch.distributed.launch --master_port {port} --nproc_per_node {gpu_count}'
         infer_cmd = f'python3 {dist_cmd} ymir/ymir_infer.py'
-        
+
     apps = dict(training='python3 ymir/ymir_training.py', mining=mining_cmd, infer=infer_cmd)
     executor = Executor(apps)
     executor.start()

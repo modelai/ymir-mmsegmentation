@@ -109,10 +109,10 @@ class YmirDistribute(object):
             tbar = dataset
 
         for idx, batch in enumerate(tbar):
-            filenames = batch['filename']
+            # filenames = batch['filename']
             images = batch['image']
 
-            results = self.iter_begin(batch, idx)
+            # results = self.iter_begin(batch, idx)
             if WORLD_SIZE > 1 and idx < max_barrier_times:
                 dist.barrier()
 
