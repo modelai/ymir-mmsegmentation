@@ -327,6 +327,9 @@ def write_last_ymir_result_file(cfg: edict, id: str = 'last'):
 
     # this file is soft link
     last_ckpt_path = osp.join(cfg.ymir.output.models_dir, 'latest.pth')
+    if osp.islink(last_ckpt_path):
+        last_ckpt_path = os.readlink(last_ckpt_path)
+
     evaluation_result = dict(mIoU=float(last_miou), mAcc=float(val_result['mAcc']), aAcc=float(val_result['aAcc']))
     if save_least_file:
         mmseg_config_files = glob.glob(osp.join(cfg.ymir.output.models_dir, '*.py'))

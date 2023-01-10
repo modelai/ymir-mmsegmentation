@@ -7,8 +7,7 @@ from easydict import EasyDict as edict
 from ymir_exc.dataset_convert.ymir2mmseg import train_with_black_area_or_not
 from ymir_exc.util import find_free_port, get_merged_config
 
-from ymir.ymir_util import (convert_annotation_dataset,
-                            write_last_ymir_result_file)
+from ymir.ymir_util import (convert_annotation_dataset, write_last_ymir_result_file)
 
 
 def main() -> int:
@@ -21,7 +20,7 @@ def main() -> int:
     # preprocess, convert ymir dataset to trainable format
     logging.info('convert ymir coco dataset to training id mask')
     convert_annotation_dataset(ymir_cfg, overwrite=True)
-    
+
     config_file: str = ymir_cfg.param.get('config_file')
     work_dir: str = ymir_cfg.ymir.output.models_dir
     if gpu_count == 0:

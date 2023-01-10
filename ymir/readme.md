@@ -47,6 +47,7 @@ model_stages:
 
 ### todo
 - [ ] batch infer
+- [ ] batch mining
 
 ## mining
 

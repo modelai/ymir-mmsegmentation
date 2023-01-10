@@ -5,9 +5,35 @@ Towards Fewer Annotations: Active Learning via Region Impurity and
 view code: https://github.com/BIT-DA/RIPU
 """
 
+import logging
+import os
+import os.path as osp
+import sys
+import warnings
+from typing import Dict, List
+
+import cv2
+import mmcv
+import numpy as np
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
 from easydict import EasyDict as edict
+from mmcv.engine import collect_results_cpu
+from mmcv.runner import init_dist, wrap_fp16_model
+from PIL import Image
+from tqdm import tqdm
+from ymir_exc import result_writer as rw
+from ymir_exc.util import (YmirStage, get_bool, get_merged_config, get_weight_files, write_ymir_monitor_process)
+
+from mmseg.apis import init_segmentor
+from ymir.tools.batch_infer import get_dataloader
+from ymir.tools.superpixel import get_superpixel
+from ymir.ymir_util import get_best_weight_file
+
+LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
+RANK = int(os.getenv('RANK', -1))
+WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 
 
 class RIPUMining(torch.nn.Module):
@@ -71,3 +97,98 @@ class RIPUMining(torch.nn.Module):
         topk = torch.topk(score, k=self.image_topk, dim=2, largest=True)  # BK
         image_score = torch.sum(topk.values, dim=1)  # B
         return image_score
+
+
+def iter_fun(cfg, model, miner, idx, batch, N, monitor_gap) -> List[Dict]:
+    """
+    batch: Dict(img=[tensor,], img_metas=[List[DataContainer],])
+    """
+    batch_img = batch['img'][0]
+    batch_meta = batch['img_metas'][0].data[0]
+    device = torch.device('cuda:0' if RANK == -1 else f'cuda:{RANK}')
+    batch_result = model.inference(batch_img.to(device), batch_meta, rescale=True)
+
+    if idx % monitor_gap == 0 and RANK in [0, -1]:
+        write_ymir_monitor_process(cfg, task='mining', naive_stage_percent=idx / N, stage=YmirStage.TASK)
+
+    scores = miner.get_image_score(batch_result)
+    image_results: List[Dict] = []
+    for idx, meta in enumerate(batch_meta):
+        score = float(scores[idx])
+        image_results.append(dict(image_filepath=meta['filename'], score=score))
+
+    return image_results
+
+
+def main() -> int:
+    if LOCAL_RANK != -1:
+        init_dist(launcher='pytorch', backend="nccl" if dist.is_nccl_available() else "gloo")
+
+    ymir_cfg: edict = get_merged_config()
+    config_files = get_weight_files(ymir_cfg, suffix=('.py'))
+    if len(config_files) == 0:
+        raise Exception('not found config file (xxx.py) in pretrained weight files')
+    elif len(config_files) > 1:
+        raise Exception(f'found multiple config files {config_files} in pretrained weight files')
+
+    checkpoint_file = get_best_weight_file(ymir_cfg)
+    if not checkpoint_file:
+        raise Exception('not found pretrain weight file (*.pt or *.pth)')
+
+    index_file_path = ymir_cfg.ymir.input.candidate_index_file
+    with open(index_file_path, 'r') as f:
+        num_image_all_rank = len(f.readlines())
+
+    samples_per_gpu = int(ymir_cfg.param.samples_per_gpu)
+    max_barrier_times = num_image_all_rank // WORLD_SIZE // samples_per_gpu
+    mmcv_cfg = mmcv.Config.fromfile(config_files[0])
+    mmcv_cfg.model.train_cfg = None
+    model = init_segmentor(config=mmcv_cfg,
+                           checkpoint=checkpoint_file,
+                           device='cuda:0' if RANK == -1 else f'cuda:{RANK}')
+    if mmcv_cfg.with_blank_area:
+        class_num = len(ymir_cfg.param.class_names) + 1
+    else:
+        class_num = len(ymir_cfg.param.class_names)
+    miner = RIPUMining(ymir_cfg, class_num)
+
+    if get_bool(ymir_cfg, 'fp16', False):
+        wrap_fp16_model(model)
+
+    dataloader = get_dataloader(mmcv_cfg, ymir_cfg)
+    N = len(dataloader)
+    if N == 0:
+        raise Exception('find empty dataloader')
+
+    if RANK in [0, -1]:
+        tbar = tqdm(dataloader, desc='obtain image prediction')
+    else:
+        tbar = dataloader
+
+    monitor_gap = max(1, N // 1000)
+
+    rank_image_result = []
+    for idx, batch in enumerate(tbar):
+        if idx < max_barrier_times and WORLD_SIZE > 1:
+            dist.barrier()
+        batch_image_result = iter_fun(ymir_cfg, model, miner, idx, batch, N, monitor_gap)
+        rank_image_result.extend(batch_image_result)
+
+    if WORLD_SIZE == 1:
+        all_image_result = rank_image_result
+    else:
+        tmp_dir = osp.join(ymir_cfg.ymir.output.root_dir, 'tmp_dir')
+        all_image_result = collect_results_cpu(rank_image_result, num_image_all_rank, tmp_dir)
+
+    if RANK in [0, -1]:
+        ymir_mining_result = []
+        for mining_info in all_image_result:
+            ymir_mining_result.append((mining_info['image_filepath'], mining_info['image_score']))
+
+        rw.write_mining_result(mining_result=ymir_mining_result)
+
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
