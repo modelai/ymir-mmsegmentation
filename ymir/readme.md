@@ -43,6 +43,7 @@ model_stages:
 
 ## infer
 - no additional hyper-param
+- [ ] infer support for large dataset (N>10000)
 
 ### todo
 - [ ] batch infer
@@ -51,7 +52,7 @@ model_stages:
 
 | hyper-parameter | type | example | usage |
 | - | - | - | - |
-| mining_algorithm | str | RSAL | mining algorithm |
+| mining_algorithm | str | RSAL, RIPU | mining algorithm |
 | superpixel_algorithm | str | slico, slic, mslic, seeds | superpixel algorithm |
 | uncertainty_method | str | BvSB | method to compute uncertainty |
 | shm_size | str | 128G | use 32G shm_size per gpu |
@@ -77,3 +78,4 @@ model_stages:
 
 - [ViewAL: Active Learning with Viewpoint Entropy for Semantic Segmentation (CVPR 2020)](https://github.com/nihalsid/ViewAL)
 - [RSAL: Revisiting Superpixels for Active Learning in Semantic Segmentation With Realistic Annotation Costs (CVPR 2021)](https://github.com/cailile/Revisiting-Superpixels-for-Active-Learning)
+- [RIPU: Towards Fewer Annotations: Active Learning via Region Impurity and  Prediction Uncertainty for Domain Adaptive Semantic Segmentation (CVPR 2022 Oral)](https://github.com/BIT-DA/RIPU)

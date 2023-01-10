@@ -13,7 +13,8 @@ from mmcv.utils import Config, ConfigDict
 from pycocotools import coco
 from tqdm import tqdm
 from ymir_exc.dataset_convert.ymir2mmseg import train_with_black_area_or_not
-from ymir_exc.util import (get_bool, get_weight_files, write_ymir_training_result)
+from ymir_exc.util import (get_bool, get_weight_files,
+                           write_ymir_training_result)
 
 
 def _find_any(str1: str, sub_strs: List[str]) -> bool:
@@ -139,6 +140,7 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
                 mask = coco_ann.annToMask(ann)
                 class_name = coco_ann.cats[ann['category_id']]['name']
                 class_id = class_names.index(class_name)
+
                 if with_blank_area:
                     # start from 1, class_name = ymir_background with class_id = 0
                     training_id_mask[mask == 1] = class_id + 1
@@ -151,7 +153,8 @@ def convert_annotation_dataset(ymir_cfg: edict, overwrite=False):
             else:
                 img_path = imgname2imgpath[osp.basename(filename)]
 
-            new_ann_path = osp.join(out_dir, 'annotations', filename)
+            # use jpg will compression, use png without compression
+            new_ann_path = osp.join(out_dir, 'annotations', osp.splitext(filename)[0] + '.png')
             os.makedirs(osp.dirname(new_ann_path), exist_ok=True)
             cv2.imwrite(new_ann_path, training_id_mask)
             fw.write(f'{img_path}\t{new_ann_path}\n')
@@ -211,7 +214,7 @@ def modify_mmcv_config(ymir_cfg: edict, mmcv_cfg: Config) -> None:
     for split in ['train', 'val', 'test']:
         ymir_dataset_cfg = dict(type='YmirDataset',
                                 split=ymir_ann_files[split],
-                                img_suffix='.png',
+                                img_suffix='.jpg',
                                 seg_map_suffix='.png',
                                 img_dir=ymir_cfg.ymir.input.assets_dir,
                                 ann_dir=ymir_cfg.ymir.input.annotations_dir,

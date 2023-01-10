@@ -10,3 +10,8 @@ class_balance: True  # True or False
 samples_per_gpu: 2
 workers_per_gpu: 2
 fp16: True
+
+
+## ripu hyper-parameter
+ripu_region_radius: 1
+# topk_superpixel_score: 3

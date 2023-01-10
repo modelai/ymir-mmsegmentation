@@ -19,7 +19,9 @@ def main() -> int:
     logging.info(f'with_blank_area = {with_blank_area}')
 
     # preprocess, convert ymir dataset to trainable format
-    convert_annotation_dataset(ymir_cfg)
+    logging.info('convert ymir coco dataset to training id mask')
+    convert_annotation_dataset(ymir_cfg, overwrite=True)
+    
     config_file: str = ymir_cfg.param.get('config_file')
     work_dir: str = ymir_cfg.ymir.output.models_dir
     if gpu_count == 0:
