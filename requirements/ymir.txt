@@ -2,4 +2,5 @@ pycocotools # please install without typing, then install typing
 opencv-contrib-python>=4.0
 easydict
 tqdm
-#ymir_exc@git+https://github.com/modelai/ymir-executor-sdk.git@ymir1.3.0
+imagesize
+ymir_exc@git+https://github.com/modelai/ymir-executor-sdk.git@ymir2.1.0

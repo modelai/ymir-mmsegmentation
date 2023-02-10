@@ -1,15 +1,18 @@
+import json
 import logging
 import os
 import os.path as osp
 import sys
 from functools import partial
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import mmcv
 import numpy as np
+import torch.distributed as dist
 from easydict import EasyDict as edict
-from mmcv.runner import wrap_fp16_model
+from mmcv.runner import init_dist, wrap_fp16_model
 from tqdm import tqdm
+from ymir_exc.result_writer import write_infer_result
 from ymir_exc.util import (YmirStage, get_bool, get_merged_config,
                            get_weight_files, write_ymir_monitor_process)
 
@@ -73,6 +76,8 @@ def save_infer_result(cfg: edict, results: List[Dict]) -> int:
 
 
 def main() -> int:
+    if LOCAL_RANK != -1:
+        init_dist(launcher='pytorch', backend="nccl" if dist.is_nccl_available() else "gloo")
     ymir_cfg: edict = get_merged_config()
     config_files = get_weight_files(ymir_cfg, suffix=('.py'))
     if len(config_files) == 0:
@@ -98,8 +103,10 @@ def main() -> int:
 
     results = run_dist(images, partial(iter_fun, ymir_cfg, model))
 
-    # save_infer_result(ymir_cfg, results)
-    convert(ymir_cfg, results)
+    if RANK in [0, -1]:
+        # save_infer_result(ymir_cfg, results)
+        coco_results = convert(ymir_cfg, results, mmcv_config.with_blank_area)
+        write_infer_result(coco_results, algorithm='segmentation')
     return 0
 
 

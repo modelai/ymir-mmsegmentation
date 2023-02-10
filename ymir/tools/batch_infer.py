@@ -1,5 +1,4 @@
 from easydict import EasyDict as edict
-from mmcv.runner import init_dist
 from mmcv.utils import Config
 
 from mmseg.datasets import build_dataloader, build_dataset
@@ -13,6 +12,8 @@ def get_dataloader(mmcv_cfg: Config, ymir_cfg: edict):
         mmcv_cfg.data.test.pipeline[1].img_ratios = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75]
         mmcv_cfg.data.test.pipeline[1].flip = True
 
+    # mmcv_cfg.data.test.pipeline[1]['transforms'][0]['keep_ratio'] = False
+
     mmcv_cfg.model.pretrained = None
     mmcv_cfg.data.test.test_mode = True
     mmcv_cfg.data.test.split = ymir_cfg.ymir.input.candidate_index_file
@@ -23,7 +24,6 @@ def get_dataloader(mmcv_cfg: Config, ymir_cfg: edict):
     if gpu_count > 1:
         dist = True
         mmcv_cfg.gpu_ids = [int(x) for x in gpu_id.split(',')]
-        init_dist('pytorch', **mmcv_cfg.dist_params)
     else:
         dist = False
         mmcv_cfg.gpu_ids = [int(x) for x in gpu_id.split(',')]
@@ -49,10 +49,11 @@ def get_dataloader(mmcv_cfg: Config, ymir_cfg: edict):
         **mmcv_cfg.data.get('test_dataloader', {})
     }
 
-    samples_per_gpu = ymir_cfg.param.samples_per_gpu
-    workers_per_gpu = ymir_cfg.param.workers_per_gpu
-    test_loader_cfg['samples_per_gpu'] = samples_per_gpu
-    test_loader_cfg['workers_per_gpu'] = workers_per_gpu
+    # TODO support batch mining
+    # samples_per_gpu = int(ymir_cfg.param.samples_per_gpu)
+    # workers_per_gpu = int(ymir_cfg.param.workers_per_gpu)
+    # test_loader_cfg['samples_per_gpu'] = samples_per_gpu
+    # test_loader_cfg['workers_per_gpu'] = workers_per_gpu
     # build the dataloader
     data_loader = build_dataloader(dataset, **test_loader_cfg)
     return data_loader
