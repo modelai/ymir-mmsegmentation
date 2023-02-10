@@ -12,6 +12,7 @@ import torch.distributed as dist
 from easydict import EasyDict as edict
 from mmcv.runner import init_dist, wrap_fp16_model
 from tqdm import tqdm
+from ymir_exc.result_writer import write_infer_result
 from ymir_exc.util import (YmirStage, get_bool, get_merged_config,
                            get_weight_files, write_ymir_monitor_process)
 
@@ -105,8 +106,7 @@ def main() -> int:
     if RANK in [0, -1]:
         # save_infer_result(ymir_cfg, results)
         coco_results = convert(ymir_cfg, results, mmcv_config.with_blank_area)
-        with open('{}/coco-infer-result.json'.format(ymir_cfg.ymir.output.root_dir), 'w') as output_json_file:
-            json.dump(coco_results, output_json_file)
+        write_infer_result(coco_results, algorithm='segmentation')
     return 0
 
 

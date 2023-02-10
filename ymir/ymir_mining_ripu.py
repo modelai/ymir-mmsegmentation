@@ -34,6 +34,7 @@ WORLD_SIZE = int(os.getenv('WORLD_SIZE', 1))
 class RIPUMining(torch.nn.Module):
 
     def __init__(self, ymir_cfg: edict, class_number: int):
+        super().__init__()
         self.ymir_cfg = ymir_cfg
         self.region_radius = int(ymir_cfg.param.ripu_region_radius)
         # note parameter: with_blank_area
@@ -70,7 +71,8 @@ class RIPUMining(torch.nn.Module):
     def get_region_impurity(self, logit: torch.Tensor) -> torch.Tensor:
         C = torch.tensor(logit.shape[1])
         predict = torch.argmax(logit, dim=1)  # BHW
-        one_hot = F.one_hot(predict, num_classes=self.class_number).permute((0, 3, 1, 2))  # BHW --> BHWC --> BCHW
+        one_hot = F.one_hot(predict, num_classes=self.class_number).permute(
+            (0, 3, 1, 2)).to(torch.float)  # BHW --> BHWC --> BCHW
         summary = self.depthwise_conv(one_hot)  # BCHW
         count = torch.sum(summary, dim=1, keepdim=True)  # B1CH
         dist = summary / count  # BCHW
@@ -88,8 +90,8 @@ class RIPUMining(torch.nn.Module):
 
     def get_image_score(self, logit: torch.Tensor) -> torch.Tensor:
         B, C, H, W = logit.shape
-        score = self.get_region_score(logit).view(size=(B, C * H * W))  # B1HW
-        topk = torch.topk(score, k=self.image_topk, dim=2, largest=True)  # BK
+        score = self.get_region_score(logit).view(size=(B, 1 * H * W))  # B1HW
+        topk = torch.topk(score, k=self.image_topk, dim=1, largest=True)  # BK
         image_score = torch.sum(topk.values, dim=1)  # B
         return image_score
 
@@ -146,6 +148,7 @@ def main() -> int:
     else:
         class_num = len(ymir_cfg.param.class_names)
     miner = RIPUMining(ymir_cfg, class_num)
+    miner.to('cuda:0' if RANK == -1 else f'cuda:{RANK}')
 
     if get_bool(ymir_cfg, 'fp16', False):
         wrap_fp16_model(model)
@@ -178,7 +181,7 @@ def main() -> int:
     if RANK in [0, -1]:
         ymir_mining_result = []
         for mining_info in all_image_result:
-            ymir_mining_result.append((mining_info['image_filepath'], mining_info['image_score']))
+            ymir_mining_result.append((mining_info['image_filepath'], mining_info['score']))
 
         rw.write_mining_result(mining_result=ymir_mining_result)
 

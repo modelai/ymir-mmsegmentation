@@ -60,11 +60,11 @@ model_stages:
 | max_superpixel_per_image | int | 1024 | max number of superpixel in one image |
 | max_kept_mining_image | int | 5000 | max number of image to label |
 | topk_superpixel_score | int | 3 | minimal number of superpixel to label in one image |
-| class balance | bool | True, False | consider class balance or not |
+| class_balance | bool | True, False | consider class balance or not |
 | fp16 | bool | True, False | change model to fp16 to make mining faster |
 | samples_per_gpu | int | 2 | batch size per gpu |
 | workers_per_gpu | int | 2 | num_workers per gpu |
-| ignore_blank_area | bool | False | train model with `ymir_background class` or not |
+| ripu_region_radius | int | 1 | ripu region radius |
 
 
 - modify origin mining algorithm from region-level to semi-image-level
